@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync"
 
 	"github.com/jessevdk/go-flags"
 	"github.com/nritholtz/stdemuxerhook"
@@ -55,6 +56,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	config := readConfig()
+
+	// Clone modules in parallel
+	var wg sync.WaitGroup
+	_ = os.RemoveAll(opts.ModulePath)
+	_ = os.MkdirAll(opts.ModulePath, os.ModePerm)
+	for key, mod := range config {
+		wg.Add(1)
+		go func(key string, m module) {
+			gitClone(m.Source, m.Version, key)
+			_ = os.RemoveAll(filepath.Join(opts.ModulePath, key, ".git"))
+		}(key, mod)
+	}
+
+	wg.Wait()
+}
+
+func readConfig() map[string]module {
 	// Read File
 	yamlFile, err := ioutil.ReadFile(opts.TerrafilePath)
 	if err != nil {
@@ -66,12 +85,5 @@ func main() {
 	if err := yaml.Unmarshal(yamlFile, &config); err != nil {
 		log.Fatalln(err)
 	}
-
-	// Clone modules
-	os.RemoveAll(opts.ModulePath)
-	os.MkdirAll(opts.ModulePath, os.ModePerm)
-	for key, module := range config {
-		gitClone(module.Source, module.Version, key)
-		os.RemoveAll(filepath.Join(opts.ModulePath, key, ".git"))
-	}
+	return config
 }
